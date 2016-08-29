@@ -1,0 +1,187 @@
+---
+title: "Twitter Sentiment Analysis of Rustom Movie"
+author: "Ankit"
+date: "August 28, 2016"
+output: 
+  html_document: 
+    keep_md: yes
+---
+
+```{r global_options, include=FALSE}
+knitr::opts_chunk$set(message=FALSE,warning=FALSE,echo=FALSE,results='hide')
+```
+
+In my quest to practice R and learn text mining, I am going to analyse the __Tweet Sentiments__ of recent movie __"Rustom"__ released on 12th Aug,2016.
+
+The idea is to come up with some sort of review of the movie by fetching the tweets about the movie and analyzing them by using a R code. So I managed to pull about 1500 tweets that were directly talking about the movie. After doing a bit of clean-up and removing terms not helpful for review purposes this is how the whole Twitter chatter about Rustom looks like:
+
+##WordCloud:
+```{r}
+library("ROAuth") #OAuth for twitter API
+library("twitteR")
+library("RJSONIO") # to resolve issue with JSON format
+library("wordcloud")
+library("tm")
+library("xtable")
+
+#to set up twitter API
+consumerKey = "xql9j9xbyH2Rb8fgpeHCpMK3V"   # from your app name
+consumerSecret = "fi8mWyoIf1Vd4FiCgDhOB5TMAtDbm59weJbh6GDZAwzQUzDh8B"
+accessToken = "298480266-tkLKYL0s8zTNEB9yW0XUHirFn72UTXk9TdfFKKzB"
+accessSecret = "dSRxc7L547R17fiaP0YK5HniJQAQQHmI0CpPAQE4wvrPJ"
+options(httr_oauth_cache=TRUE) # skip question appearing on console
+setup_twitter_oauth(consumer_key = consumerKey, consumer_secret = consumerSecret,
+                    access_token = accessToken, access_secret = accessSecret)
+
+
+#search twitter
+movie<-searchTwitter('#Rustom',n=1500,lang = 'en')
+save(movie,file="C:/Users/dell/Desktop/Data Analysis Projects/Twitter analysis/ce.Rdata")
+
+#make data frame
+movieToDataFrame<-twListToDF(movie)
+write.csv(movieToDataFrame,"C:/Users/dell/Desktop/Data Analysis Projects/Twitter analysis/ce.csv")
+
+#cleaning data
+
+test<-strsplit(movieToDataFrame$text," ")
+##test[1]
+stp<-stopwords('en')
+stp<-c(stp,'record','till','friday','hey','thu','paid','now','will','fri','weekend','sat','sunday','nett', 'breakdown', 'meant', 'last', 'ke', 'ki', 'par', 'r', 'ur', 'aur', 'pic', 'sun', 'beautiful','last','celebration', 'justified', 'done', 'd', 
+'dat', 'u', 'say', 'rs', 'records', 'cr', 'gauri', 'thats', 'will', 'needs', 
+'just', 'fans', 'day', 'srk', 'today', 'crs','yesterday','wknd','go','make','dont')
+
+movie_test <- lapply(test, function(x) x[grep("^[[:alpha:]]+$", x)])
+##movie_test[1]
+#class(movie_test): List
+movie_test <- unlist(movie_test)
+#class(movie_test):character
+
+movie_test<-tolower(movie_test)
+movie_test <- movie_test[-grep("^[rm]t$", movie_test)]
+movie_test<-movie_test[!movie_test %in% stp]
+
+movie.ts<-as.data.frame(table(movie_test))
+#head(movie.ts)
+movie.ts<-movie.ts[sort.list(movie.ts$Freq,decreasing = T),]
+
+print(xtable(head(movie.ts, 10),caption = "Top 10 words in tweets"), 
+      file = "C:/Users/dell/Desktop/Data Analysis Projects/Twitter analysis/tabletest", include.rownames = F)
+
+#Selecting color palettes for wordcloud
+
+library(RColorBrewer)
+pal2 <- brewer.pal(8,"Dark2")
+
+wordcloud(movie.ts$movie_test, movie.ts$Freq, scale = c(4, 0.5), min.freq = 5, 
+          random.order = F, colors = pal2)
+```
+
+However, this is a clouds of words(WordCloud) and it seems to be bit noisy and confusing.
+Hence, to give a clear picture, I have done sentiment analysis by breaking down tweets into individual words. After that I have classified them into positive or negative sentiments by considering __Hu and Liu's lexicon of 6800 words__ found here:
+<a href="http://www.cs.uic.edu/~liub/FBS/sentiment-analysis.html"></a>.
+This is the sentiment result that I could observe.
+
+##Sentiment Analysis:
+```{r}
+#Sentiment analysis
+
+#Downloaded list of positive & negative words (about 6800) from 
+# "http://www.cs.uic.edu/~liub/FBS/sentiment-analysis.html""
+
+pos <- scan("C:/Users/dell/Desktop/Data Analysis Projects/Twitter analysis/opinion-lexicon-English/positive-words.txt", what = 'character', comment.char = ';')
+
+neg <- scan("C:/Users/dell/Desktop/Data Analysis Projects/Twitter analysis/opinion-lexicon-English/negative-words.txt", what = 'character', comment.char = ';')
+
+#Sentiment Scoring Algorithm
+
+words <- movie_test
+
+score.sentiment = function(words, pos, neg, .progress='none')
+{
+  
+  require(plyr)
+  require(stringr)
+  
+  #final <- matrix('', 0 ,3)
+  
+  words <- movie_test
+  
+  scores = laply(words, function(words, pos, neg) {
+    
+    # comparing words with the downloaded lexicon
+    
+    positive <- match(words, pos)
+    negative <- match(words, neg)
+    
+    positive <- sum(!is.na(positive))
+    negative <- sum(!is.na(negative))
+    
+    score <- c(positive, negative)
+    #newrow <- c(words, score)
+    #final <- rbind(final, newrow)
+    
+    return(score)
+    
+  }, pos, neg, .progress=.progress )
+  
+  scores.df = data.frame(score = scores, text = words)
+  
+  return(scores.df)
+}
+final <- score.sentiment(words, pos, neg)
+
+colnames(final) <- c("Positive", "Negative", "Word")
+
+
+pos.percent <- sum(final$Positive) / (sum(final$Positive) + sum(final$Negative))
+```
+
+###<span style="color:red">Positive Percent of Sentiment is `r (pos.percent*100)`%</span>
+
+So, this analysis's observation tell that `r (pos.percent*100)`% tweets are positive about this movie.
+
+However, it may be intersting to note that this percentage is based only on positive and negative words of the tweets and ignores large number of words which do not express either positive or negative sentiment.But I think that overall it would be likely to be less considerable. 
+
+Now I will compare this analysis with the ratings prvided by few other platforms like IMDB.For this I have scraped the webpage of IMDB and BookMyShow.
+
+##Web-Scraping:
+```{r}
+library("rvest")
+library("XML")
+
+
+rustom_movie<-read_html("http://www.imdb.com/title/tt5165344/")
+
+rustom_movie %>%
+  html_node("strong span") %>%
+  html_text() %>%
+  as.numeric()
+
+#bookmyshow scraping
+rustom_movie_bookmyshow<-read_html("https://in.bookmyshow.com/bengaluru/movies/rustom/ET00035722")
+
+rustom_movie_bookmyshow %>%
+  html_node("span.__percentage") %>%
+  html_text()
+
+rustom_movie_bookmyshow %>%
+  html_node("div.user-rating")%>%
+  html_node("span.__rating")%>%
+  html_node("ul.rating-stars")%>%
+  html_attr("data-value")%>%
+  as.numeric()
+```
+
+###<span style="color:red">IMDB rating is `r rustom_movie %>% html_node("strong span") %>% html_text() %>% as.numeric()`</span>
+
+###<span style="color:red">BookmyShow review is `r rustom_movie_bookmyshow %>% html_node("span.__percentage") %>% html_text()`</span>
+
+###<span style="color:red">BookmyShow User-rating is `r rustom_movie_bookmyshow %>%html_node("div.user-rating")%>%html_node("span.__rating")%>%html_node("ul.rating-stars")%>%html_attr("data-value")%>%as.numeric()`</span>
+
+##Indeed a close comparison!!!
+
+With this I will close my analysis for this movie and wish it a great success.
+
+
+
